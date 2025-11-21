@@ -61,7 +61,6 @@ bool SMOSimulator::step() {
   }
   stepCount++;
 
-  
   std::cout << "\n=== ОБРАБОТКА СОБЫТИЯ ===" << std::endl;
   std::cout << "Шаг: " << stepCount << std::endl;
   std::cout << "Время события: " << eventTime << std::endl;
@@ -159,7 +158,6 @@ std::vector<Event> SMOSimulator::processEvent(const Event& event) {
   case EventType::DELIVERY_COORDINATION_START:
     return handleDeliveryCoordinationStartEvent(event);
   case EventType::ORDER_REJECTED:
-    
     return {};
   default:
     return {};
@@ -186,7 +184,7 @@ std::vector<Event> SMOSimulator::handleOrderGeneratedEvent(const Event& event) {
 
   
   Event nextGenEvent = restaurants[event.restaurantId].generateOrder(event.time);
-  if (nextGenEvent.time > event.time) { 
+  if (nextGenEvent.time > event.time) {
     eventCalendar.push({ nextGenEvent.time, nextGenEvent });
   }
 
@@ -268,7 +266,6 @@ std::vector<Event> SMOSimulator::handleOperatorFreeEvent(const Event& event) {
 }
 
 std::vector<Event> SMOSimulator::handleDeliveryCoordinationStartEvent(const Event& event) {
-  
   return {};
 }
 

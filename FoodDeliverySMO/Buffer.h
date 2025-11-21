@@ -19,8 +19,8 @@ public:
   std::vector<std::pair<int, Order>> getOrdersByRestaurant(int restaurantId) const;
   std::vector<Order> getNextPacket(int restaurantId) const;
   std::optional<int> getFirstOrderPosition() const;
+  int findFirstFreePosition() const;
 
-  
   bool isFull() const;
   bool isEmpty() const;
   int getSize() const;

@@ -67,7 +67,6 @@ private:
   std::vector<Event> handleOrderSelectedEvent(const Event& event);
   std::vector<Event> handleOperatorFreeEvent(const Event& event);
   std::vector<Event> handleDeliveryCoordinationStartEvent(const Event& event);
-  
 };
 
 #endif

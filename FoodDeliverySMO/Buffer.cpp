@@ -11,13 +11,12 @@ bool Buffer::addOrder(int restaurantId, int orderId, double currentTime) {
     return false;
   }
 
-  // Находим первую свободную позицию
-  for (int i = 0; i < capacity; i++) {
-    if (!orders[i].has_value()) {
-      orders[i] = Order(restaurantId, orderId, currentTime);
-      currentSize++;
-      return true;
-    }
+  
+  int freePos = findFirstFreePosition();
+  if (freePos != -1) {
+    orders[freePos] = Order(restaurantId, orderId, currentTime);
+    currentSize++;
+    return true;
   }
   return false;
 }
@@ -31,7 +30,7 @@ std::optional<Order> Buffer::removeOrder(int position) {
   orders[position] = std::nullopt;
   currentSize--;
 
-  // Сдвигаем заказы (Д1ОЗ2)
+  
   for (int i = position; i < capacity - 1; i++) {
     orders[i] = orders[i + 1];
   }
@@ -69,6 +68,15 @@ std::optional<int> Buffer::getFirstOrderPosition() const {
     }
   }
   return std::nullopt;
+}
+
+int Buffer::findFirstFreePosition() const {
+  for (int i = 0; i < capacity; i++) {
+    if (!orders[i].has_value()) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 bool Buffer::isFull() const { return currentSize >= capacity; }

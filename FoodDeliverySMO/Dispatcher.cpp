@@ -4,7 +4,6 @@
 #include <set>
 #include <iostream>
 
-
 PlacementDispatcher::PlacementDispatcher(Buffer& buf, Statistics& stats)
   : buffer(buf), statistics(stats) {}
 
@@ -43,8 +42,8 @@ std::vector<Event> PlacementDispatcher::handleNewOrder(const std::vector<Restaur
           break;
         }
       }
-
-      events.push_back(Event(EventType::ORDER_TO_BUFFER, currentTime, restaurantId, orderId, -1, position));
+      events.push_back(Event(EventType::ORDER_TO_BUFFER, currentTime,
+        restaurantId, orderId, -1, position));
     }
     else {
       
@@ -55,7 +54,6 @@ std::vector<Event> PlacementDispatcher::handleNewOrder(const std::vector<Restaur
 
   return events;
 }
-
 
 SelectionDispatcher::SelectionDispatcher(Buffer& buf)
   : buffer(buf), currentPackageRestaurant(std::nullopt) {}
@@ -76,18 +74,8 @@ void SelectionDispatcher::updatePackage() {
   }
 
   if (!restaurantsInBuffer.empty()) {
-    
     currentPackageRestaurant = *restaurantsInBuffer.begin();
     packageOrders = buffer.getOrdersByRestaurant(currentPackageRestaurant.value());
-
-    std::cout << "=== ОБНОВЛЕНИЕ ПАКЕТА ===" << std::endl;
-    std::cout << "Рестораны в буфере: ";
-    for (auto restId : restaurantsInBuffer) {
-      std::cout << restId << " ";
-    }
-    std::cout << std::endl;
-    std::cout << "Выбран ресторан: " << currentPackageRestaurant.value() << std::endl;
-    std::cout << "Заказов в пакете: " << packageOrders.size() << std::endl;
   }
   else {
     currentPackageRestaurant = std::nullopt;
@@ -96,11 +84,7 @@ void SelectionDispatcher::updatePackage() {
 }
 
 std::optional<Event> SelectionDispatcher::selectNextOrder(const std::vector<Operator>& operators, double currentTime) {
-  std::cout << "=== ВЫБОР ЗАКАЗА ИЗ БУФЕРА ===" << std::endl;
-  std::cout << "Размер буфера: " << buffer.getSize() << std::endl;
-
   if (buffer.isEmpty()) {
-    std::cout << "Буфер пуст - нечего выбирать" << std::endl;
     currentPackageRestaurant = std::nullopt;
     packageOrders.clear();
     return std::nullopt;
@@ -111,27 +95,18 @@ std::optional<Event> SelectionDispatcher::selectNextOrder(const std::vector<Oper
 
   
   if (currentPackageRestaurant.has_value() && !packageOrders.empty()) {
+    
     int position = packageOrders[0].first;
     Order order = packageOrders[0].second;
 
     
     packageOrders.erase(packageOrders.begin());
 
-    std::cout << "Выбран заказ из буфера:" << std::endl;
-    std::cout << "  Ресторан: " << order.getRestaurantId() << std::endl;
-    std::cout << "  Заказ: " << order.getOrderId() << std::endl;
-    std::cout << "  Позиция в буфере: " << position << std::endl;
-    std::cout << "  Время ожидания: " << (currentTime - order.getTimestamp()) << std::endl;
-
+    
     return Event(EventType::ORDER_SELECTED, currentTime,
       order.getRestaurantId(), order.getOrderId(), -1, position,
       currentTime - order.getTimestamp());
   }
-
-  std::cout << "Не удалось выбрать заказ из буфера" << std::endl;
-  std::cout << "currentPackageRestaurant: " <<
-    (currentPackageRestaurant.has_value() ? std::to_string(currentPackageRestaurant.value()) : "null") << std::endl;
-  std::cout << "packageOrders.size(): " << packageOrders.size() << std::endl;
 
   return std::nullopt;
 }
