@@ -18,7 +18,9 @@ public:
   PlacementDispatcher(Buffer& buf, Statistics& stats);
   std::vector<Event> handleNewOrder(const std::vector<RestaurantSource>& restaurants,
     const std::vector<Operator>& operators,
-    double currentTime, int restaurantId, int orderId);
+    double currentTime,
+    int restaurantId,
+    int orderId);
   Operator* findFreeOperator(const std::vector<Operator>& operators);
 };
 
@@ -30,7 +32,7 @@ private:
 
 public:
   SelectionDispatcher(Buffer& buf);
-  std::optional<Event> selectNextOrder(const std::vector<Operator>& operators, double currentTime);
+  std::optional<Event> selectNextOrder(double currentTime);
   std::pair<int, int> getCurrentPackageInfo() const;
   void reset();
   void updatePackage();

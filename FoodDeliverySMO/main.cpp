@@ -71,7 +71,7 @@ int main() {
   const int NUM_OPERATORS = 2;        
   const int BUFFER_CAPACITY = 5;      
   const double GENERATION_INTERVAL = 5.0;    
-  const double PROCESSING_TIME_MEAN = 3.0;   
+  const double PROCESSING_TIME_MEAN = 30.0;    //TIME CHANGING
 
   SMOSimulator simulator(NUM_RESTAURANTS, NUM_OPERATORS, BUFFER_CAPACITY,
     GENERATION_INTERVAL, PROCESSING_TIME_MEAN);
