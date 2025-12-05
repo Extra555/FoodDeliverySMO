@@ -4,10 +4,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 
-# ============================================================
-#                     EVENT STRUCTURES
-# ============================================================
-
 class EventType(Enum):
     ORDER_GENERATED = auto()
     ORDER_TO_OPERATOR = auto()
@@ -27,10 +23,6 @@ class Event:
     wait_time: float = 0.0
 
 
-# ============================================================
-#                       ORDER OBJECT
-# ============================================================
-
 @dataclass
 class Order:
     restaurant_id: int
@@ -40,10 +32,6 @@ class Order:
     def __str__(self):
         return f"Order{{restaurant={self.restaurant_id}, id={self.order_id}, time={self.timestamp:.2f}}}"
 
-
-# ============================================================
-#                       BUFFER (FIFO + shift)
-# ============================================================
 
 class Buffer:
     def __init__(self, capacity: int):
@@ -75,10 +63,6 @@ class Buffer:
         )
 
 
-# ============================================================
-#                     RESTAURANT SOURCE
-# ============================================================
-
 class RestaurantSource:
     """
     Генерация заказов НЕ начинается в момент 0.
@@ -103,10 +87,6 @@ class RestaurantSource:
         self.next_time += self.interval
         return ev
 
-
-# ============================================================
-#                     OPERATOR OBJECT
-# ============================================================
 
 class Operator:
     def __init__(self, operator_id: int, mean_service_time: float):
@@ -137,13 +117,9 @@ class Operator:
         self.current_order = None
 
 
-# ============================================================
-#                        SIMULATOR
-# ============================================================
-
 class SMO:
     def __init__(self, num_restaurants=3, num_operators=2,
-                 interval=5.0, op_mean=5.0, buffer_cap=5):  #oper time (op_mean)  PARAMS
+                 interval=5.0, op_mean=5.0, buffer_cap=5):  # oper time (op_mean)  PARAMS
 
         self.time = 0.0
         self.buffer = Buffer(buffer_cap)
@@ -206,10 +182,6 @@ class SMO:
 
         return True
 
-    # ----------------------------------------------------------
-    # PRINTING
-    # ----------------------------------------------------------
-
     def print_state(self):
         print("\n=== ТЕКУЩЕЕ СОСТОЯНИЕ ===")
         print(f"Время: {self.time:.2f}")
@@ -238,11 +210,11 @@ class SMO:
         print(f"Обработано:   {self.total_processed}")
         print(f"Отклонено:    {self.total_rejected}")
         if self.total_generated > 0:
-            print(f"Процент отказа: {(self.total_rejected/self.total_generated)*100:.2f}%")
+            print(f"Процент отказа: {(self.total_rejected / self.total_generated) * 100:.2f}%")
 
         print("\nПо ресторанам:")
         for i, waits in enumerate(self.wait_times):
-            avg_wait = sum(waits)/len(waits) if waits else 0
+            avg_wait = sum(waits) / len(waits) if waits else 0
             print(f"  Ресторан {i}: обработано={len(waits)}, ср. ожидание={avg_wait:.2f}")
 
     def print_calendar(self):
@@ -250,10 +222,6 @@ class SMO:
         for ev in self.last_events:
             print(ev)
 
-
-# ============================================================
-#                 USER INTERFACE (MENU)
-# ============================================================
 
 def main():
     print("=== СИМУЛЯЦИЯ СМО - ЦЕНТР ОБРАБОТКИ ЗАКАЗОВ ДОСТАВКИ ЕДЫ ===")
