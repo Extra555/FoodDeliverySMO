@@ -5,15 +5,12 @@ from enum import Enum, auto
 from typing import Optional, List
 
 
-# ---------------------------
-# События (EventSystem)
-# ---------------------------
 class EventType(Enum):
-    ORDER_GENERATED = auto()      # ресторан сгенерировал заказ
-    ORDER_TO_OPERATOR = auto()    # заказ назначен оператору (лог-событие)
-    OPERATOR_FREE = auto()        # оператор завершил обработку
-    ORDER_TO_BUFFER = auto()      # заказ положен в буфер (лог-событие)
-    ORDER_REJECTED = auto()       # отказ (лог-событие)
+    ORDER_GENERATED = auto()
+    ORDER_TO_OPERATOR = auto()
+    OPERATOR_FREE = auto()
+    ORDER_TO_BUFFER = auto()
+    ORDER_REJECTED = auto()
 
 
 @dataclass(order=True)
@@ -35,31 +32,17 @@ class Event:
         )
 
 
-# ---------------------------
-# Заявка
-# ---------------------------
 @dataclass
 class Order:
     restaurant_id: int
     order_id: int
-    timestamp: float  # время поступления в систему
+    timestamp: float
 
-    def __str__(self) -> str:
+    def __str__(self):
         return f"Order{{restaurant={self.restaurant_id}, id={self.order_id}, time={self.timestamp:.2f}}}"
 
 
-# ---------------------------
-# Буфер (FIFO + сдвиг) — Д1ОЗ2
-# ---------------------------
 class Buffer:
-    """
-    Д1ОЗ2:
-    - если приборы заняты, заявка занимает места буфера последовательно с первого,
-      следующая в конец, пока есть свободные места;
-    - при освобождении места N (вытаскивание/удаление) заявки с N+1.. сдвигаются влево.
-    В Python list это естественно реализуется через insert/append + pop(i).
-    """
-
     def __init__(self, capacity: int):
         self.capacity = capacity
         self.orders: List[Order] = []
@@ -71,64 +54,36 @@ class Buffer:
         return len(self.orders) == 0
 
     def add_fifo(self, order: Order) -> int:
-        """Положить в конец очереди, вернуть позицию (индекс) или -1 если полный."""
         if self.is_full():
             return -1
         self.orders.append(order)
         return len(self.orders) - 1
 
     def pop_first(self) -> Optional[Order]:
-        """FIFO: снять первый."""
         if self.is_empty():
             return None
         return self.orders.pop(0)
 
     def pop_first_by_restaurant(self, restaurant_id: int) -> Optional[Order]:
-        """
-        Для Д2Б5: снять первую (по общему порядку в буфере) заявку заданного источника.
-        pop(i) автоматически реализует "сдвиг" оставшихся.
-        """
         for i, o in enumerate(self.orders):
             if o.restaurant_id == restaurant_id:
                 return self.orders.pop(i)
         return None
 
     def restaurants_present(self) -> List[int]:
-        """Какие источники (рестораны) сейчас представлены в буфере."""
         return sorted({o.restaurant_id for o in self.orders})
 
-    def __str__(self) -> str:
+    def __str__(self):
         if not self.orders:
             return "(пусто)"
         return "\n".join(f"  [{i}] {o}" for i, o in enumerate(self.orders))
 
 
-# ---------------------------
-# Источник заявок (ИБ + ИЗ1)
-# ---------------------------
 class RestaurantSource:
-    """
-    ИБ + ИЗ1:
-    - бесконечный источник (генерирует без остановки)
-    - равномерный (детерминированный) интервал: через равные промежутки времени
-      t = t0 + k * interval
-
-    ВАЖНО:
-    - чтобы не было "толпы" заявок строго в t=0 от всех источников,
-      задаём ДЕТЕРМИНИРОВАННЫЙ стартовый сдвиг start_offset
-      (например 0, interval/3, 2*interval/3 для 3 ресторанов).
-      При этом интервал между заявками всё равно фиксированный и одинаковый.
-    """
-
-    def __init__(self, restaurant_id: int, interval: float, start_offset: float):
-        if interval <= 0:
-            raise ValueError("interval must be > 0 for IZ1")
-
+    def __init__(self, restaurant_id: int, interval: float, start_offset: float = 0.0):
         self.restaurant_id = restaurant_id
         self.interval = interval
         self.generated = 0
-
-        # первый заказ в момент start_offset (может быть 0.0)
         self.next_time = start_offset
 
     def generate_event(self) -> Event:
@@ -139,37 +94,25 @@ class RestaurantSource:
             order_id=self.generated
         )
         self.generated += 1
-        self.next_time += self.interval  # <-- ключ IZ1: строго фиксированный интервал
+        self.next_time += self.interval
         return ev
 
 
-# ---------------------------
-# Оператор (П32: экспоненциальное время обслуживания)
-# ---------------------------
 class Operator:
     def __init__(self, operator_id: int, mean_service_time: float):
-        if mean_service_time <= 0:
-            raise ValueError("mean_service_time must be > 0")
-
         self.operator_id = operator_id
-        self.mean_service_time = mean_service_time  # П32
+        self.mean_service_time = mean_service_time
         self.busy = False
         self.current_order: Optional[Order] = None
-
-        # для Д2Б5: текущий "пакет" ресторана
         self.batch_restaurant_id: Optional[int] = None
 
     def start_service(self, order: Order, current_time: float) -> Event:
         self.busy = True
         self.current_order = order
-        self.batch_restaurant_id = order.restaurant_id  # оператор закрепляется за пакетом
-
-        # П32: экспоненциальное время обслуживания
+        self.batch_restaurant_id = order.restaurant_id
         dt = random.expovariate(1.0 / self.mean_service_time)
         finish_time = current_time + dt
-
         wait_time = current_time - order.timestamp
-
         return Event(
             time=finish_time,
             etype=EventType.OPERATOR_FREE,
@@ -182,19 +125,15 @@ class Operator:
     def free(self):
         self.busy = False
         self.current_order = None
-        # batch_restaurant_id не сбрасываем: по Д2Б5 оператор старается продолжать пакет
 
 
-# ---------------------------
-# СМО: диспетчеры + календарь + статистика
-# ---------------------------
 class SMO:
     def __init__(
         self,
         num_restaurants: int = 3,
         num_operators: int = 2,
-        interval: float = 5.0,          # ИЗ1: фиксированный межприход
-        op_mean: float = 5.0,           # П32: среднее обслуживание
+        interval: float = 5.0,
+        op_mean: float = 5.0,
         buffer_cap: int = 5,
         seed: Optional[int] = None
     ):
@@ -205,65 +144,51 @@ class SMO:
         self.buffer = Buffer(buffer_cap)
         self.operators = [Operator(i, op_mean) for i in range(num_operators)]
 
-        # ДЕТЕРМИНИРОВАННЫЕ стартовые сдвиги (не ломают ИЗ1):
-        # чтобы источники не "стреляли" синхронно, делим интервал на num_restaurants
-        # и задаём равномерные оффсеты 0, interval/n, 2*interval/n, ...
-        offsets = [(i * interval) / num_restaurants for i in range(num_restaurants)]
-        self.restaurants = [
-            RestaurantSource(i, interval, offsets[i]) for i in range(num_restaurants)
-        ]
+        self.restaurants: List[RestaurantSource] = []
+        for i in range(num_restaurants):
+            start_offset = (i * interval) / num_restaurants
+            self.restaurants.append(RestaurantSource(i, interval, start_offset))
 
-        # очередь событий
         self.event_queue: List[Event] = []
-        self.last_events: List[Event] = []  # календарь
+        self.last_events: List[Event] = []
 
-        # статистика
         self.total_generated = 0
         self.total_processed = 0
         self.total_rejected = 0
         self.wait_times = [[] for _ in range(num_restaurants)]
 
-        # начальные события генерации
         for r in self.restaurants:
             heapq.heappush(self.event_queue, r.generate_event())
 
-    # ---- Д2П1: выбор прибора (приоритет по номеру) ----
     def _get_free_operator_d2p1(self) -> Optional[Operator]:
-        for op in sorted(self.operators, key=lambda o: o.operator_id):
-            if not op.busy:
-                return op
-        return None
+        free_ops = [op for op in self.operators if not op.busy]
+        if not free_ops:
+            return None
+        return min(free_ops, key=lambda o: o.operator_id)
 
-    # ---- Д2Б5: выбор заявок пакетами по источнику ----
     def _select_restaurant_for_batch(self) -> Optional[int]:
         rests = self.buffer.restaurants_present()
-        return rests[0] if rests else None  # min id
+        return rests[0] if rests else None
 
     def _take_order_from_buffer_d2b5(self, op: Operator) -> Optional[Order]:
         if self.buffer.is_empty():
             return None
-
-        # 1) продолжить текущий пакет
         if op.batch_restaurant_id is not None:
-            o = self.buffer.pop_first_by_restaurant(op.batch_restaurant_id)
-            if o is not None:
-                return o
-
-        # 2) выбрать новый самый приоритетный пакет
+            order = self.buffer.pop_first_by_restaurant(op.batch_restaurant_id)
+            if order is not None:
+                return order
         new_rest = self._select_restaurant_for_batch()
         if new_rest is None:
             return None
         op.batch_restaurant_id = new_rest
         return self.buffer.pop_first_by_restaurant(new_rest)
 
-    # ---- служебное ----
     def push_event(self, ev: Event):
         heapq.heappush(self.event_queue, ev)
 
     def _log(self, ev: Event):
         self.last_events.append(ev)
 
-    # ---- шаг симуляции ----
     def step(self) -> bool:
         if not self.event_queue:
             return False
@@ -273,18 +198,13 @@ class SMO:
         self._log(ev)
 
         if ev.etype == EventType.ORDER_GENERATED:
-            # учёт генерации (Д1ОО5: даже отказанную считаем)
             self.total_generated += 1
+            rest = self.restaurants[ev.restaurant_id]
+            self.push_event(rest.generate_event())
 
-            # планируем следующее событие генерации этого источника (ИБ + ИЗ1)
-            src = self.restaurants[ev.restaurant_id]
-            self.push_event(src.generate_event())
-
-            # новая заявка
             order = Order(ev.restaurant_id, ev.order_id, ev.time)
-
-            # Д2П1: попытка сразу на свободный прибор
             op = self._get_free_operator_d2p1()
+
             if op is not None:
                 self._log(Event(
                     time=self.time,
@@ -292,14 +212,12 @@ class SMO:
                     restaurant_id=order.restaurant_id,
                     order_id=order.order_id,
                     operator_id=op.operator_id,
-                    wait_time=0.0,
-                    buffer_pos=-1
+                    wait_time=0.0
                 ))
                 self.push_event(op.start_service(order, self.time))
             else:
-                # приборов нет — в буфер (Д1ОЗ2) либо отказ (Д1ОО5)
-                pos = self.buffer.add_fifo(order)
-                if pos != -1:
+                if not self.buffer.is_full():
+                    pos = self.buffer.add_fifo(order)
                     self._log(Event(
                         time=self.time,
                         etype=EventType.ORDER_TO_BUFFER,
@@ -308,14 +226,12 @@ class SMO:
                         buffer_pos=pos
                     ))
                 else:
-                    # отказ новой заявки, буфер не меняем
                     self.total_rejected += 1
                     self._log(Event(
                         time=self.time,
                         etype=EventType.ORDER_REJECTED,
                         restaurant_id=order.restaurant_id,
-                        order_id=order.order_id,
-                        buffer_pos=-1
+                        order_id=order.order_id
                     ))
 
         elif ev.etype == EventType.OPERATOR_FREE:
@@ -325,34 +241,27 @@ class SMO:
             self.total_processed += 1
             self.wait_times[ev.restaurant_id].append(ev.wait_time)
 
-            # Д2Б5: после освобождения оператор пытается продолжить свой пакет
-            next_order = self._take_order_from_buffer_d2b5(op)
-            if next_order is not None:
+            order = self._take_order_from_buffer_d2b5(op)
+            if order is not None:
                 self._log(Event(
                     time=self.time,
                     etype=EventType.ORDER_TO_OPERATOR,
-                    restaurant_id=next_order.restaurant_id,
-                    order_id=next_order.order_id,
+                    restaurant_id=order.restaurant_id,
+                    order_id=order.order_id,
                     operator_id=op.operator_id,
-                    wait_time=self.time - next_order.timestamp,
-                    buffer_pos=-1
+                    wait_time=self.time - order.timestamp
                 ))
-                self.push_event(op.start_service(next_order, self.time))
-            # иначе оператор остаётся свободным
+                self.push_event(op.start_service(order, self.time))
 
         return True
 
-    # ---- выводы ----
     def print_state(self):
         print("\n=== ТЕКУЩЕЕ СОСТОЯНИЕ ===")
         print(f"Время: {self.time:.2f}")
 
         print("\nРестораны (ИБ + ИЗ1):")
         for r in self.restaurants:
-            print(
-                f"  Ресторан {r.restaurant_id}: interval={r.interval:.2f}, "
-                f"next={r.next_time:.2f}, generated={r.generated}"
-            )
+            print(f"  Ресторан {r.restaurant_id}: interval={r.interval:.2f}, next={r.next_time:.2f}, generated={r.generated}")
 
         print(f"\nБуфер (Д1ОЗ2): {len(self.buffer.orders)}/{self.buffer.capacity}")
         print(self.buffer)
@@ -378,7 +287,7 @@ class SMO:
 
         print("\nПо ресторанам:")
         for i, waits in enumerate(self.wait_times):
-            avg_wait = (sum(waits) / len(waits)) if waits else 0.0
+            avg_wait = sum(waits) / len(waits) if waits else 0.0
             print(f"  Ресторан {i}: обработано={len(waits)}, ср. ожидание={avg_wait:.2f}")
 
     def print_calendar(self, last_n: int = 80):
@@ -388,22 +297,16 @@ class SMO:
             print(ev)
 
 
-# ---------------------------
-# CLI
-# ---------------------------
 def main():
     print("=== СИМУЛЯЦИЯ СМО - ЦЕНТР ОБРАБОТКИ ЗАКАЗОВ ДОСТАВКИ ЕДЫ ===")
 
-    # Параметры (можно менять под эксперимент):
-    # interval — ИЗ1 (фиксированный интервал между заявками каждого ресторана)
-    # op_mean — П32 (среднее время обслуживания)
     smo = SMO(
         num_restaurants=3,
         num_operators=2,
         interval=5.0,
         op_mean=5.0,
         buffer_cap=5,
-        seed=None  # поставь число для воспроизводимости
+        seed=None
     )
 
     while True:
