@@ -106,11 +106,19 @@ class Operator:
         self.current_order: Optional[Order] = None
         self.batch_restaurant_id: Optional[int] = None
 
+        # --- для расширенной статистики ---
+        self.busy_time = 0.0
+        self.last_start_time: Optional[float] = None
+
     def start_service(self, order: Order, current_time: float) -> Event:
         self.busy = True
         self.current_order = order
         self.batch_restaurant_id = order.restaurant_id
-        dt = random.expovariate(1.0 / self.mean_service_time)
+
+        # для загрузки прибора
+        self.last_start_time = current_time
+
+        dt = random.expovariate(1.0 / self.mean_service_time)  # П32
         finish_time = current_time + dt
         wait_time = current_time - order.timestamp
         return Event(
@@ -122,20 +130,24 @@ class Operator:
             wait_time=wait_time
         )
 
-    def free(self):
+    def free(self, current_time: float):
+        # для загрузки прибора
+        if self.last_start_time is not None:
+            self.busy_time += (current_time - self.last_start_time)
         self.busy = False
         self.current_order = None
+        self.last_start_time = None
 
 
 class SMO:
     def __init__(
         self,
-        num_restaurants: int = 3,
-        num_operators: int = 2,
-        interval: float = 5.0,
-        op_mean: float = 5.0,
-        buffer_cap: int = 5,
-        seed: Optional[int] = None
+        num_restaurants: int = 15,
+        num_operators: int = 50,
+        interval: float = 0.2,   # средний интервал (интенсивность ~ 1/interval)
+        op_mean: float = 2.0,
+        buffer_cap: int = 100,
+        seed: Optional[int] = 1
     ):
         if seed is not None:
             random.seed(seed)
@@ -152,10 +164,19 @@ class SMO:
         self.event_queue: List[Event] = []
         self.last_events: List[Event] = []
 
+        # --- старая статистика ---
         self.total_generated = 0
         self.total_processed = 0
         self.total_rejected = 0
         self.wait_times = [[] for _ in range(num_restaurants)]
+
+        # --- новая статистика (дополнительно) ---
+        self.rejected_by_restaurant = [0] * num_restaurants
+        self.system_times = [[] for _ in range(num_restaurants)]  # T пребывания в системе
+
+        # средняя длина буфера (интеграл длины)
+        self.buffer_area = 0.0
+        self.last_event_time = 0.0
 
         for r in self.restaurants:
             heapq.heappush(self.event_queue, r.generate_event())
@@ -194,6 +215,13 @@ class SMO:
             return False
 
         ev = heapq.heappop(self.event_queue)
+
+        # --- средняя длина буфера: накапливаем площадь len(buffer)*dt ---
+        dt = ev.time - self.last_event_time
+        if dt > 0:
+            self.buffer_area += len(self.buffer.orders) * dt
+            self.last_event_time = ev.time
+
         self.time = ev.time
         self._log(ev)
 
@@ -227,6 +255,7 @@ class SMO:
                     ))
                 else:
                     self.total_rejected += 1
+                    self.rejected_by_restaurant[order.restaurant_id] += 1
                     self._log(Event(
                         time=self.time,
                         etype=EventType.ORDER_REJECTED,
@@ -236,7 +265,14 @@ class SMO:
 
         elif ev.etype == EventType.OPERATOR_FREE:
             op = self.operators[ev.operator_id]
-            op.free()
+
+            # --- корректное T пребывания: берём timestamp у текущей заявки прибора ---
+            finished_order = op.current_order
+            if finished_order is not None:
+                system_time = self.time - finished_order.timestamp
+                self.system_times[finished_order.restaurant_id].append(system_time)
+
+            op.free(self.time)
 
             self.total_processed += 1
             self.wait_times[ev.restaurant_id].append(ev.wait_time)
@@ -274,6 +310,7 @@ class SMO:
             else:
                 print(f"  Оператор {op.operator_id}: свободен, batch={op.batch_restaurant_id}")
 
+
     def print_statistics(self):
         print("\n" + "=" * 70)
         print("СТАТИСТИКА СИСТЕМЫ (ОР1)")
@@ -290,6 +327,53 @@ class SMO:
             avg_wait = sum(waits) / len(waits) if waits else 0.0
             print(f"  Ресторан {i}: обработано={len(waits)}, ср. ожидание={avg_wait:.2f}")
 
+
+    def print_extended_statistics(self):
+        print("\n" + "=" * 70)
+        print("РАСШИРЕННАЯ СТАТИСТИКА")
+        print("=" * 70)
+
+        def mean(xs: List[float]) -> float:
+            return sum(xs) / len(xs) if xs else 0.0
+
+        def var(xs: List[float]) -> float:
+            if not xs:
+                return 0.0
+            m = mean(xs)
+            return (sum(x * x for x in xs) / len(xs)) - (m * m)
+
+        print("\nПо источникам (ресторанам):")
+        for i, src in enumerate(self.restaurants):
+            gen_i = src.generated
+            rej_i = self.rejected_by_restaurant[i]
+            p_rej = (rej_i / gen_i) if gen_i > 0 else 0.0
+
+            w = self.wait_times[i]
+            t = self.system_times[i]
+
+            print(
+                f"  Источник {i}: "
+                f"заявок={gen_i}, "
+                f"отказов={rej_i}, "
+                f"Pотк={p_rej:.3f}, "
+                f"E[Tож]={mean(w):.2f}, D[Tож]={var(w):.2f}, "
+                f"E[Tпр]={mean(t):.2f}, D[Tпр]={var(t):.2f}"
+            )
+
+        print("\nЗагрузка приборов (Kисп и процент загрузки):")
+        T = self.time if self.time > 0 else 1.01
+        for op in self.operators:
+            k = op.busy_time / T
+            percent = k * 100
+            print(
+                f"  Прибор {op.operator_id}: "
+                f"Kисп={k:.3f}, "
+                f"загрузка={percent:.1f}%"
+            )
+
+        avg_buf = (self.buffer_area / T) if T > 0 else 0.0
+        print(f"\nСредняя длина буфера: {avg_buf:.2f}")
+
     def print_calendar(self, last_n: int = 80):
         print("\n=== Последние события (ОД3) ===")
         tail = self.last_events[-last_n:] if last_n > 0 else self.last_events
@@ -301,12 +385,12 @@ def main():
     print("=== СИМУЛЯЦИЯ СМО - ЦЕНТР ОБРАБОТКИ ЗАКАЗОВ ДОСТАВКИ ЕДЫ ===")
 
     smo = SMO(
-        num_restaurants=3,
-        num_operators=2,
-        interval=5.0,
-        op_mean=5.0,
-        buffer_cap=5,
-        seed=None
+        num_restaurants=15,
+        num_operators=5,
+        interval=10.0,
+        op_mean=2.0,
+        buffer_cap=3,
+        seed=1
     )
 
     while True:
@@ -325,14 +409,15 @@ def main():
                 smo.print_state()
                 if input().strip().lower() == "q":
                     break
-            smo.print_statistics()
+            smo.print_statistics()  # только старая статистика
 
         elif cmd == "2":
             t_max = float(input("До какого времени моделировать? "))
             while smo.time < t_max and smo.step():
                 pass
             print("\nАвтоматическая симуляция завершена.")
-            smo.print_statistics()
+            smo.print_statistics()            # старая статистика
+            smo.print_extended_statistics()   # новая расширенная
 
         elif cmd == "3":
             try:
